@@ -43,9 +43,7 @@ import zipfile
 
 SCRIPT_VERSION = '2.3.0'
 # RPA: Added to support changing fit file atime/ctime
-from fitparse import FitFile
 import time
-import os
 
 COOKIE_JAR = cookielib.CookieJar()
 OPENER = urllib2.build_opener(urllib2.HTTPCookieProcessor(COOKIE_JAR), urllib2.HTTPSHandler(debuglevel=0))
@@ -708,38 +706,17 @@ def export_data_file(activity_id, activity_details, args, file_time, append_desc
                     logging.debug('renaming %s to %s', unzipped_name, new_name)
                     rename(unzipped_name, new_name)
                     if file_time:
-                        utime(new_name, (file_time, file_time))
+                        #print("Set file time for '%s'"%unzipped_name)
+                        utime(unzipped_name, (file_time, file_time))
 
-                    fileNum = 0
-                    for name in zip_obj.namelist():
-                        zip_obj.extract(name, args.directory)
-
-                        # RPA: Added to support changing fit file atime/ctime
-                        # Set mtime and atime of fit file to the time of the activity
-                        full = args.directory + '/' + name
-                        if full.endswith(".fit"):
-                           # Count fit files from zip in case we end up with multiples
-                           fileNum += 1
-                        
-                           fitfile = FitFile(full)
-                           activity  = fitfile.get_messages('activity')
-                           timestamp = activity.next().get_value('timestamp')
-
-                           activityTime = time.strptime(str(timestamp), Fit_Date_Time)
-                           epoch = int(time.mktime(activityTime))
-
-                           newName = args.directory +'/NEW/' + time.strftime("%Y-%b-%d", activityTime) + "-" + str(fileNum) + "-" + activity_name + '.fit'
-                           print("Renaming fit file to '%s' and setting mtime/atime to %s" % (newName, timestamp))
-                           os.renames(full, newName)
-                           os.utime(newName, (epoch, epoch))
-
-                           # Recreate a dummy empty fit file so that we wont' re-download on subsequent runs
-                           # TODO: A better way would be to maintain a list of already downloaded files and don't download if it appears in the list
-                           fh = open(full, "wb")
-                           fh.close()
-
-                        else:
-                           print("WARNING: Not renaming or setting timestamp for file '%s'" % name)
+                    extension = splitext(unzipped_name)[1]
+                    if args.move:
+                       newName = args.directory +'/NEW/' + time.strftime("%Y-%b-%d", time.localtime(file_time)) + "_" + activity_name + "_" + activity_id + extension
+                       #print("Renaming file to '%s'" % newName)
+                       renames(unzipped_name, newName)
+                       # Recreate a dummy empty file so that we wont' re-download on subsequent runs
+                       fh = open(unzipped_name, "wb")
+                       fh.close()
 
                 zip_file.close()
             else:
