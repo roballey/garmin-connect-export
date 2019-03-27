@@ -32,50 +32,59 @@ If there is no GPS track data (e.g., due to an indoor treadmill workout), a data
 
 If you have many activities, you may find that this script crashes with an "Operation timed out" message. Just run the script again and it will pick up where it left off.
 
+Installation
+------------
+
+- If you're comfortable using Git, just clone the repo from github
+- Otherwise get the latest `zip` (or `tar.gz`) from the [releases page](https://github.com/pe-st/garmin-connect-export/releases)
+  and unpack it where it suits you.
+
 Usage
 -----
 You will need a little experience running things from the command line to use this script. That said, here are the usage details from the `--help` flag:
 
 ```
-usage: gcexport.py [-h] [--version] [--username [USERNAME]]
-                   [--password [PASSWORD]] [-c [COUNT]] [-e [EXTERNAL]]
-                   [-a [ARGS]] [-f [{gpx,tcx,original,json}]] [-d [DIRECTORY]]
-                   [-u] [-ot] [-t [TEMPLATE]]
+usage: gcexport.py [-h] [--version] [-v] [--username USERNAME]
+                   [--password PASSWORD] [-c COUNT] [-e EXTERNAL] [-a ARGS]
+                   [-f {gpx,tcx,original,json}] [-d DIRECTORY] [-u] [-ot]
+                   [--desc [DESC]] [-t TEMPLATE]
+
+Garmin Connect Exporter
 
 optional arguments:
   -h, --help            show this help message and exit
   --version             print version and exit
-  --username [USERNAME]
-                        your Garmin Connect username or email address
+  -v, --verbosity       increase output verbosity
+  --username USERNAME   your Garmin Connect username or email address
                         (otherwise, you will be prompted)
-  --password [PASSWORD]
-                        your Garmin Connect password (otherwise, you will be
+  --password PASSWORD   your Garmin Connect password (otherwise, you will be
                         prompted)
-  -c [COUNT], --count [COUNT]
+  -c COUNT, --count COUNT
                         number of recent activities to download, or 'all'
                         (default: 1)
-  -e [EXTERNAL], --external [EXTERNAL]
+  -e EXTERNAL, --external EXTERNAL
                         path to external program to pass CSV file too
-                        (default: )
-  -a [ARGS], --args [ARGS]
-                        additional arguments to pass to external program
-                        (default: )
-  -f [{gpx,tcx,original,json}], --format [{gpx,tcx,original,json}]
+  -a ARGS, --args ARGS  additional arguments to pass to external program
+  -f {gpx,tcx,original,json}, --format {gpx,tcx,original,json}
                         export format; can be 'gpx', 'tcx', 'original' or
                         'json' (default: 'gpx')
-  -d [DIRECTORY], --directory [DIRECTORY]
+  -d DIRECTORY, --directory DIRECTORY
                         the directory to export to (default: './YYYY-MM-
                         DD_garmin_connect_export')
   -u, --unzip           if downloading ZIP files (format: 'original'), unzip
-                        the file and removes the ZIP file
+                        the file and remove the ZIP file
   -ot, --originaltime   will set downloaded (and possibly unzipped) file time
                         to the activity start time
-  -t [TEMPLATE], --template [TEMPLATE]
+  --desc [DESC]         append the activity's description to the file name of
+                        the download; limit size if number is given
+  -t TEMPLATE, --template TEMPLATE
                         template file with desired columns for CSV output
 ```
 
 Examples:
 `python gcexport.py --count all` will download all of your data to a dated directory.
+
+`python gcexport.py -c all -f gpx -ot --desc 20` will export all of your data in GPX format, set the timestamp of the GPX files to the start time of the activity and append the 20 first characters of the activity's description to the file name.
 
 `python gcexport.py -c all -e /Applications/LibreOffice.app/Contents/MacOS/soffice -a calc` will download all of your data and then use LibreOffice to open the CSV file with the list of your activities (the path to LibreOffice is platform-specific; the example is for macOS).
 
@@ -83,7 +92,10 @@ Examples:
 
 Alternatively, you may run it with `./gcexport.py` if you set the file as executable (i.e., `chmod u+x gcexport.py`).
 
-Of course, you must have Python installed to run this. Most Mac and Linux users should already have it. Also, as stated above, you should have some basic command line experience.
+Of course, you must have Python installed to run this. Most Mac and Linux users should already have it. Note that if you run into the [TLSV1 ALERT problem](https://github.com/pe-st/garmin-connect-export/issues/16), your Python installation might not be recent enough, e.g. macOS Sierra and High Sierra come with Python 2.7.10 which suffers from this problem (macOS Mojave's Python is recent enough though). In this case you can install a more recent Python on your Mac using [Homebrew](https://docs.brew.sh/Homebrew-and-Python) and MUSTN'T run the script with `./gcexport.py`, but with `python gcexport.py`.
+
+Also, as stated above, you should have some basic command line experience.
+
 
 Data
 ----
