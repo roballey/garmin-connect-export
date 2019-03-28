@@ -600,7 +600,7 @@ def load_gear(activity_id, args):
         # logging.exception(e)
 
 
-def export_data_file(activity_id, activity_details, args, file_time, append_desc):
+def export_data_file(activity_id, activity_details, args, file_time, activity_name, append_desc):
     """
     Write the data of the activity to a file, depending on the chosen data format
     """
@@ -615,7 +615,7 @@ def export_data_file(activity_id, activity_details, args, file_time, append_desc
     elif args.format == 'original':
         data_filename = args.directory + '/activity_' + activity_id + append_desc + '.zip'
         # TODO not all 'original' files are in FIT format, some are GPX or TCX...
-        fit_filename = args.directory + '/' + activity_id + '.fit'
+        fit_filename = args.directory + '/activity_' + activity_id + '.fit'
         download_url = URL_GC_ORIGINAL_ACTIVITY + activity_id
         file_mode = 'wb'
     elif args.format == 'json':
@@ -682,16 +682,16 @@ def export_data_file(activity_id, activity_details, args, file_time, append_desc
                     logging.debug('renaming %s to %s', unzipped_name, new_name)
                     rename(unzipped_name, new_name)
                     if file_time:
-                        #print("Set file time for '%s'"%unzipped_name)
-                        utime(unzipped_name, (file_time, file_time))
+                        #print("Set file time for '%s'"%new_name)
+                        utime(new_name, (file_time, file_time))
 
-                    extension = splitext(unzipped_name)[1]
+                    extension = splitext(new_name)[1]
                     if args.move:
-                       newName = args.directory +'/NEW/' + time.strftime("%Y-%b-%d", time.localtime(file_time)) + "_" + activity_name + "_" + activity_id + extension
-                       #print("Renaming file to '%s'" % newName)
-                       renames(unzipped_name, newName)
-                       # Recreate a dummy empty file so that we wont' re-download on subsequent runs
-                       fh = open(unzipped_name, "wb")
+                       moved_name = args.directory +'/NEW/' + time.strftime("%Y-%b-%d", time.localtime(file_time)) + "_" + activity_name + "_" + activity_id + extension
+                       #print("Renaming file to '%s'" % moved_name)
+                       renames(new_name, moved_name)
+                       # Recreate a dummy empty file so that we won't re-download on subsequent runs
+                       fh = open(new_name, "wb")
                        fh.close()
 
                 zip_file.close()
@@ -884,6 +884,8 @@ def main(argv):
             else:
                 append_desc = ''
 
+            activity_name=sanitize_filename(actvty['activityName'])
+
             if args.originaltime:
                 start_time_seconds = actvty['beginTimestamp'] // 1000 if present('beginTimestamp', actvty) else None
             else:
@@ -915,7 +917,7 @@ def main(argv):
             # Write stats to CSV.
             csv_write_record(csv_filter, extract, actvty, details, activity_type_name, event_type_name)
 
-            export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, append_desc)
+            export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, activity_name, append_desc)
 
             current_index += 1
         # End for loop for activities of chunk
