@@ -22,7 +22,7 @@ from __future__ import print_function
 from datetime import datetime, timedelta, tzinfo
 from getpass import getpass
 from math import floor
-from os import makedirs, mkdir, rename, remove, stat, utime
+from os import makedirs, mkdir, rename, remove, stat, utime, renames
 from os.path import dirname, isdir, isfile, join, realpath, splitext
 from platform import python_version
 from subprocess import call
@@ -394,6 +394,8 @@ def parse_arguments(argv):
         help='if downloading ZIP files (format: \'original\'), unzip the file and remove the ZIP file')
     parser.add_argument('-ot', '--originaltime', action='store_true',
         help='will set downloaded (and possibly unzipped) file time to the activity start time')
+    parser.add_argument('-mv', '--move',
+        help="move unzipped file to NEW directory", action="store_true")
     parser.add_argument('--desc', type=int, nargs='?', const=0, default=None,
         help='append the activity\'s description to the file name of the download; limit size if number is given')
     parser.add_argument('-t', '--template', default=CSV_TEMPLATE,
@@ -618,7 +620,7 @@ def load_gear(activity_id, args):
         # logging.exception(e)
 
 
-def export_data_file(activity_id, activity_details, args, file_time, append_desc, start_time_locale):
+def export_data_file(activity_id, activity_details, args, file_time, activity_name, append_desc, start_time_locale):
     """
     Write the data of the activity to a file, depending on the chosen data format
     """
@@ -958,7 +960,7 @@ def main(argv):
             # Write stats to CSV.
             csv_write_record(csv_filter, extract, actvty, details, activity_type_name, event_type_name)
 
-            export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, append_desc,
+            export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, activity_name, append_desc,
                              actvty['startTimeLocal'])
 
             current_index += 1
