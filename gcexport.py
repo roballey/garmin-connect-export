@@ -22,7 +22,7 @@ from __future__ import print_function
 from datetime import datetime, timedelta, tzinfo
 from getpass import getpass
 from math import floor
-from os import mkdir, rename, remove, stat, utime, renames
+from os import makedirs, mkdir, rename, remove, stat, utime, renames
 from os.path import dirname, isdir, isfile, join, realpath, splitext
 from platform import python_version
 from subprocess import call
@@ -42,10 +42,12 @@ import urllib2
 import zipfile
 import time
 
-SCRIPT_VERSION = '2.2.0_RPA'
+SCRIPT_VERSION = '2.3.0'
+# RPA: Added to support changing fit file atime/ctime
+import time
 
 COOKIE_JAR = cookielib.CookieJar()
-OPENER = urllib2.build_opener(urllib2.HTTPCookieProcessor(COOKIE_JAR))
+OPENER = urllib2.build_opener(urllib2.HTTPCookieProcessor(COOKIE_JAR), urllib2.HTTPSHandler(debuglevel=0))
 
 # this is almost the datetime format Garmin used in the activity-search-service
 # JSON 'display' fields (Garmin didn't zero-pad the date and the hour, but %d and %H do)
@@ -53,6 +55,9 @@ ALMOST_RFC_1123 = "%a, %d %b %Y %H:%M"
 
 # used by sanitize_filename()
 VALID_FILENAME_CHARS = "-_.() %s%s" % (string.ascii_letters, string.digits)
+# RPA: Added to support changing fit file atime/ctime
+# Date and time format pattern used in fit file
+Fit_Date_Time = '%Y-%m-%d %H:%M:%S'
 
 # map the numeric parentTypeId to its name for the CSV output
 PARENT_TYPE_ID = {
@@ -83,8 +88,8 @@ MAX_TRIES = 3
 CSV_TEMPLATE = join(dirname(realpath(__file__)), "csv_header_default.properties")
 
 WEBHOST = "https://connect.garmin.com"
-REDIRECT = "https://connect.garmin.com/post-auth/login"
-BASE_URL = "http://connect.garmin.com/en-US/signin"
+REDIRECT = "https://connect.garmin.com/modern/"
+BASE_URL = "https://connect.garmin.com/en-US/signin"
 SSO = "https://sso.garmin.com/sso"
 CSS = "https://static.garmincdn.com/com.garmin.connect/ui/css/gauth-custom-v1.2-min.css"
 
@@ -103,16 +108,23 @@ DATA = {
     'rememberMeChecked': 'false',
     'createAccountShown': 'true',
     'openCreateAccount': 'false',
-    'usernameShown': 'false',
     'displayNameShown': 'false',
     'consumeServiceTicket': 'false',
     'initialFocus': 'true',
     'embedWidget': 'false',
-    'generateExtraServiceTicket': 'false'
+    'generateExtraServiceTicket': 'true',
+    'generateTwoExtraServiceTickets': 'false',
+    'generateNoServiceTicket': 'false',
+    'globalOptInShown': 'true',
+    'globalOptInChecked': 'false',
+    'mobile': 'false',
+    'connectLegalTerms': 'true',
+    'locationPromptShown': 'true',
+    'showPassword': 'true'
 }
 
 # URLs for various services.
-URL_GC_LOGIN = 'https://sso.garmin.com/sso/login?' + urlencode(DATA)
+URL_GC_LOGIN = 'https://sso.garmin.com/sso/signin?' + urlencode(DATA)
 URL_GC_POST_AUTH = 'https://connect.garmin.com/modern/activities?'
 URL_GC_PROFILE = 'https://connect.garmin.com/modern/profile'
 URL_GC_USERSTATS = 'https://connect.garmin.com/modern/proxy/userstats-service/statistics/'
@@ -389,6 +401,8 @@ def parse_arguments(argv):
         help='append the activity\'s description to the file name of the download; limit size if number is given')
     parser.add_argument('-t', '--template', default=CSV_TEMPLATE,
         help='template file with desired columns for CSV output')
+    parser.add_argument('-fp', '--fileprefix', action='count',
+        help="set the local time as activity file name prefix")
 
     return parser.parse_args(argv[1:])
 
@@ -405,7 +419,10 @@ def login_to_garmin_connect(args):
     # Initially, we need to get a valid session cookie, so we pull the login page.
     print('Connecting to Garmin Connect...', end='')
     logging.info('Connecting to %s', URL_GC_LOGIN)
-    http_req(URL_GC_LOGIN)
+    connect_response = http_req(URL_GC_LOGIN)
+    # write_to_file('connect_response.html', connect_response, 'w')
+    for cookie in COOKIE_JAR:
+        logging.debug("Cookie %s : %s", cookie.name, cookie.value)
     print(' Done.')
 
     # Now we'll actually login.
@@ -413,22 +430,26 @@ def login_to_garmin_connect(args):
     post_data = {
         'username': username,
         'password': password,
-        'embed': 'true',
-        'lt': 'e1s1',
-        '_eventId': 'submit',
-        'displayNameRequired': 'false'
+        'embed': 'false',
+        'rememberme': 'on'
+    }
+
+    headers = {
+        'referer': URL_GC_LOGIN
     }
 
     print('Requesting Login ticket...', end='')
-    login_response = http_req(URL_GC_LOGIN, post_data)
-    # write_to_file(args.directory + '/login-response.html', login_response, 'w')
+    login_response = http_req(URL_GC_LOGIN + '#', post_data, headers)
+    for cookie in COOKIE_JAR:
+        logging.debug("Cookie %s : %s", cookie.name, cookie.value)
+    # write_to_file('login-response.html', login_response, 'w')
 
     # extract the ticket from the login response
     pattern = re.compile(r".*\?ticket=([-\w]+)\";.*", re.MULTILINE | re.DOTALL)
     match = pattern.match(login_response)
     if not match:
-        raise Exception('Did not get a ticket in the login response. Cannot log in. Did \
-    you enter the correct username and password?')
+        raise Exception('Couldn\'t find ticket in the login response. Cannot log in. '
+                        'Did you enter the correct username and password?')
     login_ticket = match.group(1)
     print(' Done. Ticket=' + login_ticket)
 
@@ -600,26 +621,32 @@ def load_gear(activity_id, args):
         # logging.exception(e)
 
 
-def export_data_file(activity_id, activity_details, args, file_time, activity_name, append_desc):
+def export_data_file(activity_id, activity_details, args, file_time, activity_name, append_desc, start_time_locale):
     """
     Write the data of the activity to a file, depending on the chosen data format
     """
+    # timestamp as prefix for filename
+    if args.fileprefix > 0:
+        prefix = "{}-".format(start_time_locale.replace("-", "").replace(":", b"").replace(" ", "-"))
+    else:
+        prefix = ""
+
     if args.format == 'gpx':
-        data_filename = args.directory + '/activity_' + activity_id + append_desc + '.gpx'
+        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.gpx'
         download_url = URL_GC_GPX_ACTIVITY + activity_id + '?full=true'
         file_mode = 'w'
     elif args.format == 'tcx':
-        data_filename = args.directory + '/activity_' + activity_id + append_desc + '.tcx'
+        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.tcx'
         download_url = URL_GC_TCX_ACTIVITY + activity_id + '?full=true'
         file_mode = 'w'
     elif args.format == 'original':
-        data_filename = args.directory + '/activity_' + activity_id + append_desc + '.zip'
+        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.zip'
         # TODO not all 'original' files are in FIT format, some are GPX or TCX...
         fit_filename = args.directory + '/activity_' + activity_id + '.fit'
         download_url = URL_GC_ORIGINAL_ACTIVITY + activity_id
         file_mode = 'wb'
     elif args.format == 'json':
-        data_filename = args.directory + '/activity_' + activity_id + append_desc + '.json'
+        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.json'
         file_mode = 'w'
     else:
         raise Exception('Unrecognized format.')
@@ -730,6 +757,23 @@ def logging_verbosity(verbosity):
             level = logging.DEBUG if verbosity > 1 else (logging.INFO if verbosity > 0 else logging.WARN)
             handler.setLevel(level)
             logging.debug('New console log level: %s', logging.getLevelName(level))
+
+
+def resolve_path(directory, subdir, time):
+    """
+    Replace time variables and returns changed path. Supported place holders are {YYYY} and {MM}
+    :param directory: export root directory
+    :param subdir: subdirectory, can have place holders.
+    :param time: date-time-string
+    :return: Updated dictionary string
+    """
+    ret = join(directory, subdir)
+    if re.compile(".*{YYYY}.*").match(ret):
+        ret = ret.replace("{YYYY}", time[0:4])
+    if re.compile(".*{MM}.*").match(ret):
+        ret = ret.replace("{MM}", time[5:7])
+
+    return ret
 
 
 def main(argv):
@@ -917,7 +961,8 @@ def main(argv):
             # Write stats to CSV.
             csv_write_record(csv_filter, extract, actvty, details, activity_type_name, event_type_name)
 
-            export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, activity_name, append_desc)
+            export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, activity_name, append_desc,
+                             actvty['startTimeLocal'])
 
             current_index += 1
         # End for loop for activities of chunk
