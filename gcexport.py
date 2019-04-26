@@ -604,16 +604,18 @@ def extract_device(device_dict, details, start_time_seconds, args, http_caller, 
 def load_gear(activity_id, args):
     """Retrieve the gear/equipment for an activity"""
     try:
+        gear_list = ""
         gear_json = http_req(URL_GC_GEAR + activity_id)
         gear = json.loads(gear_json)
         if gear:
             del args # keep 'args' argument in case you need to uncomment write_to_file
             # write_to_file(args.directory + '/activity_' + activity_id + '-gear.json',
             #               gear_json, 'w')
-            gear_display_name = gear[0]['displayName'] if present('displayName', gear[0]) else None
-            gear_model = gear[0]['customMakeModel'] if present('customMakeModel', gear[0]) else None
-            logging.debug("Gear for %s = %s/%s", activity_id, gear_display_name, gear_model)
-            return gear_display_name if gear_display_name else gear_model
+            for gear_item in gear:
+                gear_list+=gear_item['customMakeModel']
+                gear_list+="; "
+            logging.debug("Gear for %s = %s", activity_id, gear_list)
+            return gear_list
         return None
     except urllib2.HTTPError:
         pass  # don't abort just for missing gear...
@@ -714,7 +716,7 @@ def export_data_file(activity_id, activity_details, args, file_time, activity_na
 
                     extension = splitext(new_name)[1]
                     if args.move:
-                       moved_name = args.directory +'/NEW/' + time.strftime("%Y-%b-%d", time.localtime(file_time)) + "_" + activity_name + "_" + activity_id + extension
+                       moved_name = args.directory +'/../NEW/' + time.strftime("%Y-%b-%d", time.localtime(file_time)) + "_" + activity_name + "_" + activity_id + extension
                        #print("Renaming file to '%s'" % moved_name)
                        renames(new_name, moved_name)
                        # Recreate a dummy empty file so that we won't re-download on subsequent runs
