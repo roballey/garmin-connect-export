@@ -7,6 +7,8 @@ Original author: Kyle Krafka (https://github.com/kjkjava/)
 Date: April 28, 2015
 Fork author: Michael P (https://github.com/moderation/)
 Date: February 21, 2016
+Fork author: Peter Steiner (https://github.com/pe-st/)
+Date: June 2017
 
 Description:    Use this script to export your fitness data from Garmin Connect.
                 See README.md for more information.
@@ -42,9 +44,10 @@ import urllib2
 import zipfile
 import time
 
-SCRIPT_VERSION = '2.3.0'
 # RPA: Added to support changing fit file atime/ctime
 import time
+
+SCRIPT_VERSION = '2.3.3'
 
 COOKIE_JAR = cookielib.CookieJar()
 OPENER = urllib2.build_opener(urllib2.HTTPCookieProcessor(COOKIE_JAR), urllib2.HTTPSHandler(debuglevel=0))
@@ -72,7 +75,8 @@ PARENT_TYPE_ID = {
     71: 'motorcycling',
     83: 'transition',
     144: 'diving',
-    149: 'yoga'
+    149: 'yoga',
+    165: 'winter_sports'
 }
 
 # typeId values using pace instead of speed
@@ -138,6 +142,22 @@ URL_GC_GPX_ACTIVITY = 'https://connect.garmin.com/modern/proxy/download-service/
 URL_GC_TCX_ACTIVITY = 'https://connect.garmin.com/modern/proxy/download-service/export/tcx/activity/'
 URL_GC_ORIGINAL_ACTIVITY = 'http://connect.garmin.com/proxy/download-service/files/activity/'
 
+
+def resolve_path(directory, subdir, time):
+    """
+    Replace time variables and returns changed path. Supported place holders are {YYYY} and {MM}
+    :param directory: export root directory
+    :param subdir: subdirectory, can have place holders.
+    :param time: date-time-string
+    :return: Updated dictionary string
+    """
+    ret = join(directory, subdir)
+    if re.compile(".*{YYYY}.*").match(ret):
+        ret = ret.replace("{YYYY}", time[0:4])
+    if re.compile(".*{MM}.*").match(ret):
+        ret = ret.replace("{MM}", time[5:7])
+
+    return ret
 
 
 def hhmmss_from_seconds(sec):
@@ -391,6 +411,9 @@ def parse_arguments(argv):
         help="export format; can be 'gpx', 'tcx', 'original' or 'json' (default: 'gpx')")
     parser.add_argument('-d', '--directory', default=activities_directory,
         help='the directory to export to (default: \'./YYYY-MM-DD_garmin_connect_export\')')
+    parser.add_argument('-s', "--subdir",
+        help="the subdirectory for activity files (tcx, gpx etc.), supported placeholders are {YYYY} and {MM}"
+                        " (default: export directory)" )
     parser.add_argument('-u', '--unzip', action='store_true',
         help='if downloading ZIP files (format: \'original\'), unzip the file and remove the ZIP file')
     parser.add_argument('-ot', '--originaltime', action='store_true',
@@ -403,6 +426,8 @@ def parse_arguments(argv):
         help='template file with desired columns for CSV output')
     parser.add_argument('-fp', '--fileprefix', action='count',
         help="set the local time as activity file name prefix")
+    parser.add_argument('-sa', '--start_activity_no', type=int, default=1,
+        help="give index for first activity to import, i.e. skipping the newest activites")
 
     return parser.parse_args(argv[1:])
 
@@ -627,28 +652,43 @@ def export_data_file(activity_id, activity_details, args, file_time, activity_na
     """
     Write the data of the activity to a file, depending on the chosen data format
     """
+    # Time dependent subdirectory for activity files, e.g. '{YYYY}
+    if not args.subdir is None:
+        directory = resolve_path(args.directory, args.subdir, start_time_locale)
+    # export activities to root directory
+    else:
+        directory = args.directory
+
+    if not isdir(directory):
+        makedirs(directory)
+
     # timestamp as prefix for filename
     if args.fileprefix > 0:
         prefix = "{}-".format(start_time_locale.replace("-", "").replace(":", b"").replace(" ", "-"))
     else:
         prefix = ""
 
+    fit_filename = None
     if args.format == 'gpx':
-        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.gpx'
+        data_filename = directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.gpx'
         download_url = URL_GC_GPX_ACTIVITY + activity_id + '?full=true'
         file_mode = 'w'
     elif args.format == 'tcx':
-        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.tcx'
+        data_filename = directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.tcx'
         download_url = URL_GC_TCX_ACTIVITY + activity_id + '?full=true'
         file_mode = 'w'
     elif args.format == 'original':
-        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.zip'
+        data_filename = directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.zip'
         # TODO not all 'original' files are in FIT format, some are GPX or TCX...
+<<<<<<< HEAD
         fit_filename = args.directory + '/activity_' + activity_id + '.fit'
+=======
+        fit_filename = directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.fit'
+>>>>>>> upstream/develop
         download_url = URL_GC_ORIGINAL_ACTIVITY + activity_id
         file_mode = 'wb'
     elif args.format == 'json':
-        data_filename = args.directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.json'
+        data_filename = directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.json'
         file_mode = 'w'
     else:
         raise Exception('Unrecognized format.')
@@ -704,10 +744,10 @@ def export_data_file(activity_id, activity_details, args, file_time, activity_na
                 zip_file = open(data_filename, 'rb')
                 zip_obj = zipfile.ZipFile(zip_file)
                 for name in zip_obj.namelist():
-                    unzipped_name = zip_obj.extract(name, args.directory)
+                    unzipped_name = zip_obj.extract(name, directory)
                     # prepend 'activity_' and append the description to the base name
                     name_base, name_ext = splitext(name)
-                    new_name = args.directory + '/activity_' + name_base + append_desc + name_ext
+                    new_name = directory + '/activity_' + name_base + append_desc + name_ext
                     logging.debug('renaming %s to %s', unzipped_name, new_name)
                     rename(unzipped_name, new_name)
                     if file_time:
@@ -885,86 +925,91 @@ def main(argv):
 
         # Process each activity.
         for actvty in activities:
-            # Display which entry we're working on.
-            print('Garmin Connect activity ', end='')
-            print('(' + str(current_index) + '/' + str(total_to_download) + ') ', end='')
-            print('[' + str(actvty['activityId']) + '] ', end='')
-            print(actvty['activityName'])
+            if args.start_activity_no and current_index < args.start_activity_no:
+                pass
+                # Display which entry we're skipping.
+                print('Skipping Garmin Connect activity ', end='')
+                print('(' + str(current_index) + '/' + str(total_to_download) + ') ', end='')
+                print('[' + str(actvty['activityId']) + '] \n', end='')
+            else:
+                # Display which entry we're working on.
+                print('Garmin Connect activity ', end='')
+                print('(' + str(current_index) + '/' + str(total_to_download) + ') ', end='')
+                print('[' + str(actvty['activityId']) + '] ', end='')
+                print(actvty['activityName'])
 
-            # Retrieve also the detail data from the activity (the one displayed on
-            # the https://connect.garmin.com/modern/activity/xxx page), because some
-            # data are missing from 'a' (or are even different, e.g. for my activities
-            # 86497297 or 86516281)
-            activity_details = None
-            details = None
-            tries = MAX_TRIES
-            while tries > 0:
-                activity_details = http_req(URL_GC_ACTIVITY + str(actvty['activityId']))
-                details = json.loads(activity_details)
-                # I observed a failure to get a complete JSON detail in about 5-10 calls out of 1000
-                # retrying then statistically gets a better JSON ;-)
-                if details['summaryDTO']:
-                    tries = 0
+                # Retrieve also the detail data from the activity (the one displayed on
+                # the https://connect.garmin.com/modern/activity/xxx page), because some
+                # data are missing from 'a' (or are even different, e.g. for my activities
+                # 86497297 or 86516281)
+                activity_details = None
+                details = None
+                tries = MAX_TRIES
+                while tries > 0:
+                    activity_details = http_req(URL_GC_ACTIVITY + str(actvty['activityId']))
+                    details = json.loads(activity_details)
+                    # I observed a failure to get a complete JSON detail in about 5-10 calls out of 1000
+                    # retrying then statistically gets a better JSON ;-)
+                    if details['summaryDTO']:
+                        tries = 0
+                    else:
+                        logging.info("Retrying activity details download %s", URL_GC_ACTIVITY + str(actvty['activityId']))
+                        tries -= 1
+                        if tries == 0:
+                            raise Exception('Didn\'t get "summaryDTO" after ' + str(MAX_TRIES) + ' tries for ' + str(actvty['activityId']))
+
+                extract = {}
+                extract['start_time_with_offset'] = offset_date_time(actvty['startTimeLocal'], actvty['startTimeGMT'])
+                elapsed_duration = details['summaryDTO']['elapsedDuration'] if 'summaryDTO' in details and 'elapsedDuration' in details['summaryDTO'] else None
+                extract['elapsed_duration'] = elapsed_duration if elapsed_duration else actvty['duration']
+                extract['elapsed_seconds'] = int(round(extract['elapsed_duration']))
+                extract['end_time_with_offset'] = extract['start_time_with_offset'] + timedelta(seconds=extract['elapsed_seconds'])
+
+                print('\t' + extract['start_time_with_offset'].isoformat() + ', ', end='')
+                print(hhmmss_from_seconds(extract['elapsed_seconds']) + ', ', end='')
+                if 'distance' in actvty and isinstance(actvty['distance'], (float)):
+                    print("{0:.3f}".format(actvty['distance'] / 1000) + 'km')
                 else:
-                    logging.info("Retrying activity details download %s", URL_GC_ACTIVITY + str(actvty['activityId']))
-                    tries -= 1
-                    if tries == 0:
-                        raise Exception('Didn\'t get "summaryDTO" after ' + str(MAX_TRIES) + ' tries for ' + str(actvty['activityId']))
+                    print('0.000 km')
 
-            extract = {}
-            extract['start_time_with_offset'] = offset_date_time(actvty['startTimeLocal'], actvty['startTimeGMT'])
-            elapsed_duration = details['summaryDTO']['elapsedDuration'] if 'summaryDTO' in details and 'elapsedDuration' in details['summaryDTO'] else None
-            extract['elapsed_duration'] = elapsed_duration if elapsed_duration else actvty['duration']
-            extract['elapsed_seconds'] = int(round(extract['elapsed_duration']))
-            extract['end_time_with_offset'] = extract['start_time_with_offset'] + timedelta(seconds=extract['elapsed_seconds'])
+                if args.desc != None:
+                    append_desc = '_' + sanitize_filename(actvty['activityName'], args.desc)
+                else:
+                    append_desc = ''
 
-            print('\t' + extract['start_time_with_offset'].isoformat() + ', ', end='')
-            print(hhmmss_from_seconds(extract['elapsed_seconds']) + ', ', end='')
-            if 'distance' in actvty and isinstance(actvty['distance'], (float)):
-                print("{0:.3f}".format(actvty['distance'] / 1000) + 'km')
-            else:
-                print('0.000 km')
+                if args.originaltime:
+                    start_time_seconds = actvty['beginTimestamp'] // 1000 if present('beginTimestamp', actvty) else None
+                else:
+                    start_time_seconds = None
 
-            if args.desc != None:
-                append_desc = '_' + sanitize_filename(actvty['activityName'], args.desc)
-            else:
-                append_desc = ''
+                extract['device'] = extract_device(device_dict, details, start_time_seconds, args, http_req, write_to_file)
 
-            activity_name=sanitize_filename(actvty['activityName'])
+                # try to get the JSON with all the samples (not all activities have it...),
+                # but only if it's really needed for the CSV output
+                extract['samples'] = None
+                if csv_filter.is_column_active('sampleCount'):
+                    try:
+                        # TODO implement retries here, I have observed temporary failures
+                        activity_measurements = http_req(URL_GC_ACTIVITY + str(actvty['activityId']) + "/details")
+                        write_to_file(args.directory + '/activity_' + str(actvty['activityId']) + '_samples.json',
+                                      activity_measurements, 'w',
+                                      start_time_seconds)
+                        samples = json.loads(activity_measurements)
+                        extract['samples'] = samples
+                    except urllib2.HTTPError:
+                        pass # don't abort just for missing samples...
+                        # logging.info("Unable to get samples for %d", actvty['activityId'])
+                        # logging.exception(e)
 
-            if args.originaltime:
-                start_time_seconds = actvty['beginTimestamp'] // 1000 if present('beginTimestamp', actvty) else None
-            else:
-                start_time_seconds = None
+                extract['gear'] = None
+                if csv_filter.is_column_active('gear'):
+                    extract['gear'] = load_gear(str(actvty['activityId']), args)
 
-            extract['device'] = extract_device(device_dict, details, start_time_seconds, args, http_req, write_to_file)
+                # Write stats to CSV.
+                csv_write_record(csv_filter, extract, actvty, details, activity_type_name, event_type_name)
 
-            # try to get the JSON with all the samples (not all activities have it...),
-            # but only if it's really needed for the CSV output
-            extract['samples'] = None
-            if csv_filter.is_column_active('sampleCount'):
-                try:
-                    # TODO implement retries here, I have observed temporary failures
-                    activity_measurements = http_req(URL_GC_ACTIVITY + str(actvty['activityId']) + "/details")
-                    write_to_file(args.directory + '/activity_' + str(actvty['activityId']) + '_samples.json',
-                                  activity_measurements, 'w',
-                                  start_time_seconds)
-                    samples = json.loads(activity_measurements)
-                    extract['samples'] = samples
-                except urllib2.HTTPError:
-                    pass # don't abort just for missing samples...
-                    # logging.info("Unable to get samples for %d", actvty['activityId'])
-                    # logging.exception(e)
-
-            extract['gear'] = None
-            if csv_filter.is_column_active('gear'):
-                extract['gear'] = load_gear(str(actvty['activityId']), args)
-
-            # Write stats to CSV.
-            csv_write_record(csv_filter, extract, actvty, details, activity_type_name, event_type_name)
-
-            export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, activity_name, append_desc,
-                             actvty['startTimeLocal'])
+                export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, append_desc,
+                                 actvty['startTimeLocal'])
 
             current_index += 1
         # End for loop for activities of chunk
