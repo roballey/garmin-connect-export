@@ -680,11 +680,7 @@ def export_data_file(activity_id, activity_details, args, file_time, activity_na
     elif args.format == 'original':
         data_filename = directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.zip'
         # TODO not all 'original' files are in FIT format, some are GPX or TCX...
-<<<<<<< HEAD
-        fit_filename = args.directory + '/activity_' + activity_id + '.fit'
-=======
         fit_filename = directory + '/' + prefix + 'activity_' + activity_id + append_desc + '.fit'
->>>>>>> upstream/develop
         download_url = URL_GC_ORIGINAL_ACTIVITY + activity_id
         file_mode = 'wb'
     elif args.format == 'json':
