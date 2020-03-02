@@ -42,12 +42,9 @@ import sys
 import unicodedata
 import urllib2
 import zipfile
-import time
-
-# RPA: Added to support changing fit file atime/ctime
-import time
 
 SCRIPT_VERSION = '2.3.3'
+import time
 
 COOKIE_JAR = cookielib.CookieJar()
 OPENER = urllib2.build_opener(urllib2.HTTPCookieProcessor(COOKIE_JAR), urllib2.HTTPSHandler(debuglevel=0))
@@ -58,9 +55,6 @@ ALMOST_RFC_1123 = "%a, %d %b %Y %H:%M"
 
 # used by sanitize_filename()
 VALID_FILENAME_CHARS = "-_.() %s%s" % (string.ascii_letters, string.digits)
-# RPA: Added to support changing fit file atime/ctime
-# Date and time format pattern used in fit file
-Fit_Date_Time = '%Y-%m-%d %H:%M:%S'
 
 # map the numeric parentTypeId to its name for the CSV output
 PARENT_TYPE_ID = {
@@ -629,18 +623,16 @@ def extract_device(device_dict, details, start_time_seconds, args, http_caller, 
 def load_gear(activity_id, args):
     """Retrieve the gear/equipment for an activity"""
     try:
-        gear_list = ""
         gear_json = http_req(URL_GC_GEAR + activity_id)
         gear = json.loads(gear_json)
         if gear:
             del args # keep 'args' argument in case you need to uncomment write_to_file
             # write_to_file(args.directory + '/activity_' + activity_id + '-gear.json',
             #               gear_json, 'w')
-            for gear_item in gear:
-                gear_list+=gear_item['customMakeModel']
-                gear_list+="; "
-            logging.debug("Gear for %s = %s", activity_id, gear_list)
-            return gear_list
+            gear_display_name = gear[0]['displayName'] if present('displayName', gear[0]) else None
+            gear_model = gear[0]['customMakeModel'] if present('customMakeModel', gear[0]) else None
+            logging.debug("Gear for %s = %s/%s", activity_id, gear_display_name, gear_model)
+            return gear_display_name if gear_display_name else gear_model
         return None
     except urllib2.HTTPError:
         pass  # don't abort just for missing gear...
@@ -747,7 +739,6 @@ def export_data_file(activity_id, activity_details, args, file_time, activity_na
                     logging.debug('renaming %s to %s', unzipped_name, new_name)
                     rename(unzipped_name, new_name)
                     if file_time:
-                        #print("Set file time for '%s'"%new_name)
                         utime(new_name, (file_time, file_time))
 
                     extension = splitext(new_name)[1]
@@ -973,6 +964,8 @@ def main(argv):
                 else:
                     append_desc = ''
 
+                activity_name=sanitize_filename(actvty['activityName'])
+
                 if args.originaltime:
                     start_time_seconds = actvty['beginTimestamp'] // 1000 if present('beginTimestamp', actvty) else None
                 else:
@@ -1004,7 +997,7 @@ def main(argv):
                 # Write stats to CSV.
                 csv_write_record(csv_filter, extract, actvty, details, activity_type_name, event_type_name)
 
-                export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, append_desc,
+                export_data_file(str(actvty['activityId']), activity_details, args, start_time_seconds, activity_name, append_desc,
                                  actvty['startTimeLocal'])
 
             current_index += 1
